@@ -2,8 +2,8 @@
 name = "aur-trust"
 description = "Track trusted AUR packages"
 version = "0.1.0"
-homepage = "https://github.com/lunaryorn/aur-trust"
-repository = "https://github.com/lunaryorn/aur-trust"
+homepage = "https://github.com/swsnr/aur-trust"
+repository = "https://github.com/swsnr/aur-trust"
 authors = ["Sebastian Wiesner <sebastian@swsnr.de>"]
 license = "MPL-2.0"
 edition = "2021"
