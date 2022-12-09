@@ -141,6 +141,6 @@ mod test {
         assert_str_eq!(info.results[0].name, "1password");
         assert_str_eq!(info.results[0].maintainer, "1Password");
         assert_str_eq!(info.results[1].name, "dracut-hook-uefi");
-        assert_str_eq!(info.results[1].maintainer, "lunaryorn");
+        assert_str_eq!(info.results[1].maintainer, "swsnr");
     }
 }
