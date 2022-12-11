@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-//! Types and traits for representing and checking trust.
+//! Types for representing trust.
 
 use crate::lattice::{HasBottom, HasTop, JoinSemiLattice, MeetSemiLattice};
 
@@ -47,6 +47,90 @@ impl JoinSemiLattice for Trust {
 impl MeetSemiLattice for Trust {
     fn meet(self, other: Self) -> Self {
         self.min(other)
+    }
+}
+
+/// The verdict whether a package is trusted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrustVerdict {
+    trust: Trust,
+    reasons: Vec<String>,
+}
+
+impl TrustVerdict {
+    /// A trusted verdict without any reason.
+    pub fn trusted() -> TrustVerdict {
+        TrustVerdict::default().set_trust(Trust::Trusted)
+    }
+
+    /// An untrusted verdict without any reason.
+    pub fn untrusted() -> TrustVerdict {
+        TrustVerdict::default().set_trust(Trust::Untrusted)
+    }
+
+    /// Whether the package is trusted.
+    pub fn trust(&self) -> Trust {
+        self.trust
+    }
+
+    /// The reasons for this verdict.
+    pub fn reasons(&self) -> &[String] {
+        &self.reasons
+    }
+
+    /// Set the trust verdict.
+    pub fn set_trust(self, trust: Trust) -> Self {
+        Self { trust, ..self }
+    }
+
+    /// Add a reason to this verdict.
+    pub fn add_reason(mut self, reason: String) -> Self {
+        self.reasons.push(reason);
+        self
+    }
+}
+
+impl Default for TrustVerdict {
+    /// The default verdict: Trust is still indeterminate, and there are no special reasons.
+    fn default() -> Self {
+        Self {
+            trust: Trust::Indeterminate,
+            reasons: Vec::new(),
+        }
+    }
+}
+
+impl MeetSemiLattice for TrustVerdict {
+    /// Determine the lower bound of two trust verdicts.
+    ///
+    /// Retain all reasons for the lower bound, and discard other reasons.
+    fn meet(self, other: Self) -> Self {
+        let trust = self.trust.meet(other.trust);
+        let mut reasons = Vec::with_capacity(self.reasons.len() + other.reasons.len());
+        if self.trust == trust {
+            reasons.extend(self.reasons.into_iter());
+        }
+        if other.trust == trust {
+            reasons.extend(other.reasons.into_iter());
+        }
+        Self { trust, reasons }
+    }
+}
+
+impl JoinSemiLattice for TrustVerdict {
+    /// Determine the upper bound of two trust verdicts.
+    ///
+    /// Retain all reasons for the lower bound, and discard other reasons.
+    fn join(self, other: Self) -> Self {
+        let trust = self.trust.join(other.trust);
+        let mut reasons = Vec::with_capacity(self.reasons.len() + other.reasons.len());
+        if self.trust == trust {
+            reasons.extend(self.reasons.into_iter());
+        }
+        if other.trust == trust {
+            reasons.extend(other.reasons.into_iter());
+        }
+        Self { trust, reasons }
     }
 }
 
@@ -115,5 +199,15 @@ mod test {
     #[quickcheck]
     fn trust_meet_bottom(t: Trust) {
         assert_eq!(t.meet(Trust::bottom()), Trust::Untrusted);
+    }
+
+    #[test]
+    fn trust_verdict_join_gt() {
+        todo!()
+    }
+
+    #[test]
+    fn trust_verdict_meet_lt() {
+        todo!()
     }
 }
