@@ -5,7 +5,16 @@
 use serde::Deserialize;
 use thiserror::Error;
 
+/// The user agent to use for RPC requests to the AUR.
 static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+/// The letsencrypt root certificate.
+///
+/// The AUR RPC endpoint uses letsencrypt certificates, so this is the only relevant root
+/// certificate we require for AUR RPC requests.
+///
+/// Embedding this certificate makes aur-trust self-contained and independent from system trust
+/// stores, and increases security because we avoid all other shady CAs that might be installed
+/// somewhere.
 static LETSENCRYPT_ROOT: &[u8] = include_bytes!("isrgrootx1.der");
 
 fn letsencrypt_root() -> reqwest::tls::Certificate {
@@ -47,7 +56,11 @@ pub struct AurClient {
 }
 
 impl AurClient {
-    /// Create a new AUR client.
+    /// Create a new default AUR client.
+    ///
+    /// This client uses a user agent which identifies aur-trust and its version number, and a
+    /// custom TLS configuration which uses only the letsencrypt root certificate required to make
+    /// secure AUR RPC connections.
     pub fn new() -> Result<Self> {
         reqwest::ClientBuilder::new()
             .user_agent(USER_AGENT)
@@ -62,16 +75,19 @@ impl AurClient {
             .map_err(From::from)
     }
 
+    /// Create an AUR RPC client around the given [`reqwest::Client`].
     pub fn from_client(client: reqwest::Client) -> Self {
         Self { client }
     }
 
+    /// The AUR RPC base URL, for version 5.
     fn base_url(&self) -> reqwest::Url {
         // TODO: Find a way to make this static?
         reqwest::Url::parse("https://aur.archlinux.org/rpc/?v=5")
             .expect("Base URL should definitely be valid!")
     }
 
+    /// Get information about the given `packages`.
     pub async fn info<I, S>(&self, packages: I) -> Result<AurInfo>
     where
         I: IntoIterator<Item = S>,
