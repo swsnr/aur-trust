@@ -4,6 +4,7 @@
 
 use serde::Deserialize;
 use thiserror::Error;
+use tracing::{event, instrument, Level};
 
 /// The user agent to use for RPC requests to the AUR.
 static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
@@ -34,11 +35,11 @@ pub struct AurPackage {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct AurInfo {
+struct AurInfo {
     /// The number of results returned by AUR.
-    pub resultcount: usize,
+    resultcount: usize,
     /// The results.
-    pub results: Vec<AurPackage>,
+    results: Vec<AurPackage>,
 }
 
 #[derive(Error, Debug)]
@@ -88,7 +89,8 @@ impl AurClient {
     }
 
     /// Get information about the given `packages`.
-    pub async fn info<I, S>(&self, packages: I) -> Result<AurInfo>
+    #[instrument(skip_all)]
+    pub async fn info<I, S>(&self, packages: I) -> Result<Vec<AurPackage>>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -98,14 +100,24 @@ impl AurClient {
         for package in packages {
             url.query_pairs_mut().append_pair("arg[]", package.as_ref());
         }
-        Ok(self
+        event!(Level::DEBUG, "GET {}", &url);
+        let info: AurInfo = self
             .client
             .get(url)
             .send()
             .await?
             .error_for_status()?
             .json()
-            .await?)
+            .await?;
+        if info.resultcount != info.results.len() {
+            event!(
+                Level::WARN,
+                "Inconsistent AUR info response: resultcount {} != results.len {}",
+                info.resultcount,
+                info.results.len()
+            );
+        }
+        Ok(info.results)
     }
 }
 
@@ -116,47 +128,44 @@ mod test {
 
     #[tokio::test]
     async fn single_get_single_maintainer() {
-        let info = AurClient::new()
+        let results = AurClient::new()
             .unwrap()
             .info(&["1password"])
             .await
             .unwrap();
-        assert_eq!(info.resultcount, 1);
-        assert_eq!(info.results.len(), 1);
-        assert_str_eq!(info.results[0].name, "1password");
-        assert_str_eq!(info.results[0].maintainer, "1Password");
+        assert_eq!(results.len(), 1);
+        assert_str_eq!(results[0].name, "1password");
+        assert_str_eq!(results[0].maintainer, "1Password");
         assert!(
-            info.results[0].co_maintainers.is_empty(),
+            results[0].co_maintainers.is_empty(),
             "Maintainers: {:?}",
-            info.results[0].co_maintainers
+            results[0].co_maintainers
         );
     }
 
     #[tokio::test]
     async fn single_get_with_comaintainers() {
-        let info = AurClient::new().unwrap().info(&["aurutils"]).await.unwrap();
-        assert_eq!(info.resultcount, 1);
-        assert_eq!(info.results.len(), 1);
-        assert_str_eq!(info.results[0].name, "aurutils");
-        assert_str_eq!(info.results[0].maintainer, "Alad");
+        let results = AurClient::new().unwrap().info(&["aurutils"]).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_str_eq!(results[0].name, "aurutils");
+        assert_str_eq!(results[0].maintainer, "Alad");
         assert_eq!(
-            info.results[0].co_maintainers,
+            results[0].co_maintainers,
             vec!["cgirard", "maximbaz", "rafasc"]
         );
     }
 
     #[tokio::test]
     async fn multiget() {
-        let info = AurClient::new()
+        let results = AurClient::new()
             .unwrap()
             .info(&["1password", "dracut-hook-uefi"])
             .await
             .unwrap();
-        assert_eq!(info.resultcount, 2);
-        assert_eq!(info.results.len(), 2);
-        assert_str_eq!(info.results[0].name, "1password");
-        assert_str_eq!(info.results[0].maintainer, "1Password");
-        assert_str_eq!(info.results[1].name, "dracut-hook-uefi");
-        assert_str_eq!(info.results[1].maintainer, "swsnr");
+        assert_eq!(results.len(), 2);
+        assert_str_eq!(results[0].name, "1password");
+        assert_str_eq!(results[0].maintainer, "1Password");
+        assert_str_eq!(results[1].name, "dracut-hook-uefi");
+        assert_str_eq!(results[1].maintainer, "swsnr");
     }
 }

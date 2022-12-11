@@ -10,7 +10,7 @@ edition = "2021"
 
 [dependencies]
 thiserror = { version = "1.0.37", default-features = false }
-tracing = { version = "0.1.37", default-features = false }
+tracing = { version = "0.1.37", default-features = false, features = ["attributes"] }
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter"] }
 serde = { version = "1.0.148", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.89", default-features = false, features = ["std"] }
