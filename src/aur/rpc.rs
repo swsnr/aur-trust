@@ -2,6 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+//! The RPC interface of the Arch User Repository.
+
 use serde::Deserialize;
 use thiserror::Error;
 use tracing::{event, instrument, Level};
@@ -22,6 +24,7 @@ fn letsencrypt_root() -> reqwest::tls::Certificate {
     reqwest::tls::Certificate::from_der(LETSENCRYPT_ROOT).unwrap()
 }
 
+/// Information about an AUR package.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct AurPackage {
@@ -42,21 +45,24 @@ struct AurInfo {
     results: Vec<AurPackage>,
 }
 
+/// A request to the AUR RPC interface failed.
 #[derive(Error, Debug)]
-pub enum AurError {
+pub enum AurRpcError {
     /// Reqwest returned an error.
     #[error("reqwest failed")]
     ReqwestError(#[from] reqwest::Error),
 }
 
-pub type Result<T> = std::result::Result<T, AurError>;
+/// The result of AUR RPC requests.
+pub type Result<T> = std::result::Result<T, AurRpcError>;
 
+/// A client for the AUR RPC interface.
 #[derive(Debug, Clone)]
-pub struct AurClient {
+pub struct AurRpcClient {
     client: reqwest::Client,
 }
 
-impl AurClient {
+impl AurRpcClient {
     /// Create a new default AUR client.
     ///
     /// This client uses a user agent which identifies aur-trust and its version number, and a
@@ -128,7 +134,7 @@ mod test {
 
     #[tokio::test]
     async fn single_get_single_maintainer() {
-        let results = AurClient::new()
+        let results = AurRpcClient::new()
             .unwrap()
             .info(&["1password"])
             .await
@@ -145,7 +151,11 @@ mod test {
 
     #[tokio::test]
     async fn single_get_with_comaintainers() {
-        let results = AurClient::new().unwrap().info(&["aurutils"]).await.unwrap();
+        let results = AurRpcClient::new()
+            .unwrap()
+            .info(&["aurutils"])
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_str_eq!(results[0].name, "aurutils");
         assert_str_eq!(results[0].maintainer, "Alad");
@@ -157,7 +167,7 @@ mod test {
 
     #[tokio::test]
     async fn multiget() {
-        let results = AurClient::new()
+        let results = AurRpcClient::new()
             .unwrap()
             .info(&["1password", "dracut-hook-uefi"])
             .await

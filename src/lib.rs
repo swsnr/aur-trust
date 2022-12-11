@@ -6,6 +6,4 @@
 
 //! Check trust in AUR packages.
 
-// TODO: Remove once the rpc module is being used elsewhere
-#[allow(dead_code)]
-mod aur;
+pub mod aur;
