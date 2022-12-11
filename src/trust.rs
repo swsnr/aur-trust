@@ -2,10 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#![deny(warnings, missing_docs, clippy::all)]
+//! Determine whether AUR packages are trusted.
 
-//! Check trust in AUR packages.
+mod types;
 
-pub mod aur;
-pub mod lattice;
-pub mod trust;
+pub use types::Trust;
