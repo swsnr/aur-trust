@@ -6,7 +6,7 @@
 
 mod types;
 
-use crate::lattice::{JoinSemiLattice, MeetSemiLattice};
+use crate::lattice::MeetSemiLattice;
 use std::collections::HashSet;
 pub use types::{Trust, TrustVerdict};
 
@@ -137,6 +137,21 @@ pub fn check_maintainers(trustdb: &TrustDatabase, maintainers: &HashSet<String>)
     }
 }
 
+/// Obtain the combined verdict out of all given verdicts.
+///
+/// If the lower bound of all `verdicts` is untrusted return the lower bound, because an explicitly
+/// untrusted verdict marks a package as untrusted.
+///
+/// Otherwise return the upper bound, i.e. indeterminate or trusted depending on the verdicts.
+pub fn combined_verdict<I>(verdicts: I) -> TrustVerdict
+where
+    I: IntoIterator<Item = TrustVerdict>,
+{
+    verdicts
+        .into_iter()
+        .fold(TrustVerdict::default(), |l, r| l.meet(r))
+}
+
 /// Check the trust in the given `package`.
 ///
 /// Check the trust in the HEAD commit signature and the trust in the registered maintainers.
@@ -146,12 +161,7 @@ pub fn check_trust(trustdb: &TrustDatabase, package: &PackageWithEvidence) -> Tr
     let commit_verdict = check_head_signature(&package.head_commit);
     let maintainer_verdict = check_maintainers(trustdb, &package.maintainers);
 
-    let lower_bound = commit_verdict.clone().meet(maintainer_verdict.clone());
-    if lower_bound.trust() == Trust::Untrusted {
-        lower_bound
-    } else {
-        commit_verdict.join(maintainer_verdict)
-    }
+    combined_verdict(vec![commit_verdict, maintainer_verdict])
 }
 
 #[cfg(test)]

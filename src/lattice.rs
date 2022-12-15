@@ -4,22 +4,10 @@
 
 //! Type definitions and utilities for complete lattices.
 
-/// A join semi lattice.
-pub trait JoinSemiLattice {
-    /// Compute the least upper bound of `self` and `other.
-    fn join(self, other: Self) -> Self;
-}
-
 /// A meet semi lattice.
 pub trait MeetSemiLattice {
     /// Compute the greatest lower bound of `self` and `other.
     fn meet(self, other: Self) -> Self;
-}
-
-/// A set which has a top element.
-pub trait HasTop {
-    /// The element which is greater or equal to all other elements.
-    fn top() -> Self;
 }
 
 /// A set which has a bottom element.

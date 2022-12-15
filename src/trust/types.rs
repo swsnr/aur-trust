@@ -4,43 +4,32 @@
 
 //! Types for representing trust.
 
-use crate::lattice::{HasBottom, HasTop, JoinSemiLattice, MeetSemiLattice};
+use crate::lattice::{HasBottom, MeetSemiLattice};
 
 /// Trust in an AUR package.
+///
+/// The enum variants form a partial order so that the lower bound of two trust values indicates an
+/// overall trust value.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Trust {
     /// The package is not trusted.
     Untrusted = 0,
-    /// Trust for the package is not fully determined yet.
-    Indeterminate = 1,
     /// The package is trusted.
-    Trusted = 2,
-}
-
-impl HasTop for Trust {
-    /// [`Trust::Trusted`], as the top element of the [`Trust`] enum.
-    fn top() -> Self {
-        Trust::Trusted
-    }
+    Trusted = 1,
+    /// Trust for the package is not fully determined yet.
+    Indeterminate = 2,
 }
 
 impl HasBottom for Trust {
-    /// [`Trust::Untrusted`], as the bottom element of the [`Trust`] enum.
+    /// Untrusted, i.e. the package is definitely not trusted.
     fn bottom() -> Self {
         Trust::Untrusted
     }
 }
 
 impl Default for Trust {
-    /// By default, trust is [`Trust::Indeterminate`].
     fn default() -> Self {
-        Trust::Indeterminate
-    }
-}
-
-impl JoinSemiLattice for Trust {
-    fn join(self, other: Self) -> Self {
-        self.max(other)
+        Self::Indeterminate
     }
 }
 
@@ -113,23 +102,8 @@ impl MeetSemiLattice for TrustVerdict {
         if other.trust == trust {
             reasons.extend(other.reasons.into_iter());
         }
-        Self { trust, reasons }
-    }
-}
-
-impl JoinSemiLattice for TrustVerdict {
-    /// Determine the upper bound of two trust verdicts.
-    ///
-    /// Retain all reasons for the lower bound, and discard other reasons.
-    fn join(self, other: Self) -> Self {
-        let trust = self.trust.join(other.trust);
-        let mut reasons = Vec::with_capacity(self.reasons.len() + other.reasons.len());
-        if self.trust == trust {
-            reasons.extend(self.reasons.into_iter());
-        }
-        if other.trust == trust {
-            reasons.extend(other.reasons.into_iter());
-        }
+        // Sort to establish commutativity
+        reasons.sort();
         Self { trust, reasons }
     }
 }
@@ -137,18 +111,13 @@ impl JoinSemiLattice for TrustVerdict {
 #[cfg(test)]
 mod test {
     use crate::lattice::*;
-    use crate::trust::Trust;
-    use quickcheck::Gen;
+    use crate::trust::{Trust, TrustVerdict};
+    use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
 
     #[test]
     fn trust_default() {
         assert_eq!(Trust::default(), Trust::Indeterminate)
-    }
-
-    #[test]
-    fn trust_top() {
-        assert_eq!(Trust::top(), Trust::Trusted)
     }
 
     #[test]
@@ -158,18 +127,18 @@ mod test {
 
     #[test]
     fn trust_ord() {
-        assert!(Trust::Trusted >= Trust::Trusted);
-        assert!(Trust::Trusted > Trust::Indeterminate);
-        assert!(Trust::Trusted > Trust::Untrusted);
-        assert!(Trust::Indeterminate < Trust::Trusted);
         assert!(Trust::Indeterminate >= Trust::Indeterminate);
+        assert!(Trust::Indeterminate > Trust::Trusted);
         assert!(Trust::Indeterminate > Trust::Untrusted);
+        assert!(Trust::Trusted < Trust::Indeterminate);
+        assert!(Trust::Trusted >= Trust::Trusted);
+        assert!(Trust::Trusted > Trust::Untrusted);
         assert!(Trust::Untrusted < Trust::Trusted);
         assert!(Trust::Untrusted < Trust::Indeterminate);
         assert!(Trust::Untrusted >= Trust::Untrusted);
     }
 
-    impl quickcheck::Arbitrary for Trust {
+    impl Arbitrary for Trust {
         fn arbitrary(g: &mut Gen) -> Self {
             g.choose(&[Trust::Trusted, Trust::Indeterminate, Trust::Untrusted])
                 .unwrap()
@@ -177,16 +146,17 @@ mod test {
         }
     }
 
-    #[quickcheck]
-    fn trust_join_gt(left: Trust, right: Trust) {
-        let top = left.join(right);
-        assert!(top >= left, "{:?} >= {:?}", top, left);
-        assert!(top >= right, "{:?} >= {:?}", top, right);
+    impl Arbitrary for TrustVerdict {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let trust = Trust::arbitrary(g);
+            let reasons = Arbitrary::arbitrary(g);
+            TrustVerdict { trust, reasons }
+        }
     }
 
     #[quickcheck]
-    fn trust_join_top(t: Trust) {
-        assert_eq!(t.join(Trust::top()), Trust::Trusted);
+    fn trust_meet_commutative(left: Trust, right: Trust) {
+        assert_eq!(left.meet(right), right.meet(left))
     }
 
     #[quickcheck]
@@ -201,13 +171,34 @@ mod test {
         assert_eq!(t.meet(Trust::bottom()), Trust::Untrusted);
     }
 
-    #[test]
-    fn trust_verdict_join_gt() {
-        todo!()
+    #[quickcheck]
+    fn trust_verdict_meet_commutative(l: TrustVerdict, r: TrustVerdict) {
+        assert_eq!(l.clone().meet(r.clone()), r.meet(l));
     }
 
-    #[test]
-    fn trust_verdict_meet_lt() {
-        todo!()
+    #[quickcheck]
+    fn trust_verdict_meet_lt(l: TrustVerdict, r: TrustVerdict) {
+        let lower = l.clone().meet(r.clone());
+        assert_eq!(lower.trust, l.trust.meet(r.trust));
+        if l.trust == lower.trust {
+            for reason in l.reasons {
+                assert!(
+                    lower.reasons.contains(&reason),
+                    "{} in {:?}",
+                    &reason,
+                    &lower.trust
+                );
+            }
+        }
+        if r.trust == lower.trust {
+            for reason in r.reasons {
+                assert!(
+                    lower.reasons.contains(&reason),
+                    "{} in {:?}",
+                    &reason,
+                    &lower.trust
+                );
+            }
+        }
     }
 }
