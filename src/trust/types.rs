@@ -110,33 +110,8 @@ impl MeetSemiLattice for TrustVerdict {
 
 #[cfg(test)]
 mod test {
-    use crate::lattice::*;
     use crate::trust::{Trust, TrustVerdict};
     use quickcheck::{Arbitrary, Gen};
-    use quickcheck_macros::quickcheck;
-
-    #[test]
-    fn trust_default() {
-        assert_eq!(Trust::default(), Trust::Indeterminate)
-    }
-
-    #[test]
-    fn trust_bottom() {
-        assert_eq!(Trust::bottom(), Trust::Untrusted)
-    }
-
-    #[test]
-    fn trust_ord() {
-        assert!(Trust::Indeterminate >= Trust::Indeterminate);
-        assert!(Trust::Indeterminate > Trust::Trusted);
-        assert!(Trust::Indeterminate > Trust::Untrusted);
-        assert!(Trust::Trusted < Trust::Indeterminate);
-        assert!(Trust::Trusted >= Trust::Trusted);
-        assert!(Trust::Trusted > Trust::Untrusted);
-        assert!(Trust::Untrusted < Trust::Trusted);
-        assert!(Trust::Untrusted < Trust::Indeterminate);
-        assert!(Trust::Untrusted >= Trust::Untrusted);
-    }
 
     impl Arbitrary for Trust {
         fn arbitrary(g: &mut Gen) -> Self {
@@ -154,50 +129,95 @@ mod test {
         }
     }
 
-    #[quickcheck]
-    fn trust_meet_commutative(left: Trust, right: Trust) {
-        assert_eq!(left.meet(right), right.meet(left))
-    }
+    mod trust {
+        use crate::lattice::HasBottom;
+        use crate::trust::Trust;
+        use pretty_assertions::assert_eq;
 
-    #[quickcheck]
-    fn trust_meet_bt(left: Trust, right: Trust) {
-        let bottom = left.meet(right);
-        assert!(bottom <= left, "{:?} <= {:?}", bottom, left);
-        assert!(bottom <= right, "{:?} <= {:?}", bottom, right);
-    }
+        #[test]
+        fn default() {
+            assert_eq!(Trust::default(), Trust::Indeterminate)
+        }
 
-    #[quickcheck]
-    fn trust_meet_bottom(t: Trust) {
-        assert_eq!(t.meet(Trust::bottom()), Trust::Untrusted);
-    }
+        #[test]
+        fn bottom() {
+            assert_eq!(Trust::bottom(), Trust::Untrusted)
+        }
 
-    #[quickcheck]
-    fn trust_verdict_meet_commutative(l: TrustVerdict, r: TrustVerdict) {
-        assert_eq!(l.clone().meet(r.clone()), r.meet(l));
-    }
+        #[test]
+        fn ord() {
+            assert!(Trust::Indeterminate >= Trust::Indeterminate);
+            assert!(Trust::Indeterminate > Trust::Trusted);
+            assert!(Trust::Indeterminate > Trust::Untrusted);
+            assert!(Trust::Trusted < Trust::Indeterminate);
+            assert!(Trust::Trusted >= Trust::Trusted);
+            assert!(Trust::Trusted > Trust::Untrusted);
+            assert!(Trust::Untrusted < Trust::Trusted);
+            assert!(Trust::Untrusted < Trust::Indeterminate);
+            assert!(Trust::Untrusted >= Trust::Untrusted);
+        }
 
-    #[quickcheck]
-    fn trust_verdict_meet_lt(l: TrustVerdict, r: TrustVerdict) {
-        let lower = l.clone().meet(r.clone());
-        assert_eq!(lower.trust, l.trust.meet(r.trust));
-        if l.trust == lower.trust {
-            for reason in l.reasons {
-                assert!(
-                    lower.reasons.contains(&reason),
-                    "{} in {:?}",
-                    &reason,
-                    &lower.trust
-                );
+        mod meet {
+            use crate::lattice::{HasBottom, MeetSemiLattice};
+            use crate::trust::Trust;
+            use pretty_assertions::assert_eq;
+            use quickcheck_macros::quickcheck;
+
+            #[quickcheck]
+            fn commutative(left: Trust, right: Trust) {
+                assert_eq!(left.meet(right), right.meet(left))
+            }
+
+            #[quickcheck]
+            fn bottom(t: Trust) {
+                assert_eq!(t.meet(Trust::bottom()), Trust::Untrusted);
+            }
+
+            #[quickcheck]
+            fn lower_bound(left: Trust, right: Trust) {
+                let glb = left.meet(right);
+                assert!(glb <= left, "{:?} <= {:?}", glb, left);
+                assert!(glb <= right, "{:?} <= {:?}", glb, right);
             }
         }
-        if r.trust == lower.trust {
-            for reason in r.reasons {
-                assert!(
-                    lower.reasons.contains(&reason),
-                    "{} in {:?}",
-                    &reason,
-                    &lower.trust
-                );
+    }
+
+    mod trust_verdict {
+        mod meet {
+            use crate::lattice::MeetSemiLattice;
+            use crate::trust::TrustVerdict;
+            use pretty_assertions::assert_eq;
+            use quickcheck_macros::quickcheck;
+
+            #[quickcheck]
+            fn commutative(l: TrustVerdict, r: TrustVerdict) {
+                assert_eq!(l.clone().meet(r.clone()), r.meet(l));
+            }
+
+            #[quickcheck]
+            fn lower_bound(l: TrustVerdict, r: TrustVerdict) {
+                let glb = l.clone().meet(r.clone());
+                assert_eq!(glb.trust, l.trust.meet(r.trust));
+                if l.trust == glb.trust {
+                    for reason in l.reasons {
+                        assert!(
+                            glb.reasons.contains(&reason),
+                            "{} in {:?}",
+                            &reason,
+                            &glb.trust
+                        );
+                    }
+                }
+                if r.trust == glb.trust {
+                    for reason in r.reasons {
+                        assert!(
+                            glb.reasons.contains(&reason),
+                            "{} in {:?}",
+                            &reason,
+                            &glb.trust
+                        );
+                    }
+                }
             }
         }
     }

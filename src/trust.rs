@@ -10,7 +10,8 @@ use crate::lattice::MeetSemiLattice;
 use std::collections::HashSet;
 pub use types::{Trust, TrustVerdict};
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+/// The validity of a Git signature, according to git.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum SignatureValidity {
     /// The signature was good and valid.
     Good,
@@ -44,6 +45,28 @@ pub struct TrustDatabase {
     trusted_maintainers: HashSet<String>,
 }
 
+impl TrustDatabase {
+    /// Set trusted maintainers.
+    pub fn set_trusted_maintainers(mut self, maintainers: HashSet<String>) -> Self {
+        self.trusted_maintainers = maintainers;
+        self
+    }
+
+    /// Add a single maintainer as trusted maintainer.
+    pub fn trust_maintainer(mut self, maintainer: String) -> Self {
+        self.trusted_maintainers.insert(maintainer);
+        self
+    }
+}
+
+impl Default for TrustDatabase {
+    fn default() -> Self {
+        Self {
+            trusted_maintainers: HashSet::new(),
+        }
+    }
+}
+
 /// A git commit.
 #[derive(Clone, Eq, PartialEq)]
 pub struct GitCommit {
@@ -70,7 +93,7 @@ pub struct PackageWithEvidence {
 ///
 /// If the commit has a signature return a trusted verdict if and only if the signature is good and
 /// valid, ie, if the key is trusted.  Otherwise return an untrusted verdict.
-pub fn check_head_signature(commit: &GitCommit) -> TrustVerdict {
+pub fn check_commit_signature(commit: &GitCommit) -> TrustVerdict {
     commit.signature.as_ref().map_or_else(
         || {
             TrustVerdict::default().add_reason(format!(
@@ -80,7 +103,7 @@ pub fn check_head_signature(commit: &GitCommit) -> TrustVerdict {
         },
         |signature| match signature.validity {
             SignatureValidity::Good => TrustVerdict::trusted().add_reason(format!(
-                "HEAD commit {} signed by {} with {}",
+                "HEAD commit {} signed by {} with key {}",
                 &commit.abbrev_sha1, signature.signer, signature.key
             )),
             SignatureValidity::Bad => TrustVerdict::untrusted().add_reason(format!(
@@ -158,7 +181,7 @@ where
 /// If either is untrusted return an untrusted verdict with corresponding reasons, otherwise return
 /// the upper bound of both verdicts with corresponding reasons.
 pub fn check_trust(trustdb: &TrustDatabase, package: &PackageWithEvidence) -> TrustVerdict {
-    let commit_verdict = check_head_signature(&package.head_commit);
+    let commit_verdict = check_commit_signature(&package.head_commit);
     let maintainer_verdict = check_maintainers(trustdb, &package.maintainers);
 
     combined_verdict(vec![commit_verdict, maintainer_verdict])
@@ -166,18 +189,96 @@ pub fn check_trust(trustdb: &TrustDatabase, package: &PackageWithEvidence) -> Tr
 
 #[cfg(test)]
 mod test {
-    #[test]
-    pub fn check_trust() {
-        todo!()
+    mod check_maintainers {
+        use crate::trust::*;
+        use pretty_assertions::assert_eq;
+        use std::collections::HashSet;
+
+        #[test]
+        fn empty_maintainers() {
+            let db = TrustDatabase::default().trust_maintainer("foo".to_owned());
+            let verdict = TrustVerdict::default().add_reason("Maintainers unknown".to_owned());
+            assert_eq!(check_maintainers(&db, &HashSet::new()), verdict);
+        }
+
+        #[test]
+        fn some_maintainer_not_trusted() {
+            let db = TrustDatabase::default().trust_maintainer("foo".to_owned());
+            let maintainers = HashSet::from_iter(["foo".to_owned(), "bar".to_owned()]);
+            let verdict =
+                TrustVerdict::default().add_reason("Maintainer bar is not trusted".to_owned());
+            assert_eq!(check_maintainers(&db, &maintainers), verdict);
+        }
+
+        #[test]
+        fn all_maintainers_trusted() {
+            let db = TrustDatabase::default()
+                .trust_maintainer("foo".to_owned())
+                .trust_maintainer("bar".to_owned())
+                .trust_maintainer("spam".to_owned());
+            let maintainers = HashSet::from_iter(["foo".to_owned(), "bar".to_owned()]);
+            let verdict = TrustVerdict::default()
+                .set_trust(Trust::Trusted)
+                .add_reason("All maintainers trusted".to_owned());
+            assert_eq!(check_maintainers(&db, &maintainers), verdict);
+        }
     }
 
-    #[test]
-    pub fn check_maintainers() {
-        todo!()
-    }
+    mod check_head_signature {
+        use crate::trust::*;
+        use pretty_assertions::assert_eq;
+        use quickcheck::{Arbitrary, Gen};
+        use quickcheck_macros::quickcheck;
 
-    #[test]
-    pub fn check_head_signature() {
-        todo!()
+        impl Arbitrary for SignatureValidity {
+            fn arbitrary(g: &mut Gen) -> Self {
+                g.choose(&[
+                    SignatureValidity::Good,
+                    SignatureValidity::Bad,
+                    SignatureValidity::UnknownValidity,
+                    SignatureValidity::ExpiredSignature,
+                    SignatureValidity::ExpiredKey,
+                    SignatureValidity::RevokedKey,
+                ])
+                .unwrap()
+                .to_owned()
+            }
+        }
+
+        #[quickcheck]
+        fn validity_trusted(validity: SignatureValidity) {
+            let commit = GitCommit {
+                abbrev_sha1: "d62e888".to_owned(),
+                signature: Some(CommitSignature {
+                    validity,
+                    signer: "Jane Doe <j.doe@example.com>".to_string(),
+                    key: "SHA256:xBUrqiiYS+mY5fCndm8Ye+SDU3Gr578hRbUL7ZzHbiY".to_string(),
+                }),
+            };
+            let verdict = check_commit_signature(&commit);
+            match validity {
+                SignatureValidity::Good => {
+                    assert_eq!(verdict.trust(), Trust::Trusted);
+                    assert_eq!(verdict.reasons(), &["HEAD commit d62e888 signed by Jane Doe <j.doe@example.com> with key SHA256:xBUrqiiYS+mY5fCndm8Ye+SDU3Gr578hRbUL7ZzHbiY".to_string()])
+                }
+                _ => {
+                    assert_eq!(verdict.trust(), Trust::Untrusted);
+                }
+            }
+        }
+
+        #[test]
+        fn unsigned_indeterminate() {
+            let commit = GitCommit {
+                abbrev_sha1: "d62e888".to_owned(),
+                signature: None,
+            };
+            let verdict = check_commit_signature(&commit);
+            assert_eq!(verdict.trust(), Trust::Indeterminate);
+            assert_eq!(
+                verdict.reasons(),
+                vec!["HEAD commit d62e888 has no signature".to_owned()]
+            );
+        }
     }
 }
